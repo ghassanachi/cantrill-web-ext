@@ -1,0 +1,13 @@
+
+.ac-ext-badge-container {
+    display: inline-flex;
+    align-items: flex-end;
+    vertical-align: middle;
+    padding-left: 12px;
+}
+
+.ac-ext-badge {
+    height: 20px;
+    width: 20px;
+    margin-right: -12px;
+}
