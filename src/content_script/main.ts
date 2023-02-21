@@ -45,11 +45,11 @@ function updateDOM(page: RefreshType, curState: NonNullable<typeof state>) {
     initElement.style.display = "none";
     document.body.appendChild(initElement);
 
-    let currentCourses = curState.courses[page.courseId];
+    let currentCourse = curState.courses[page.courseId];
     let lectureNodes = Array.from(document.getElementsByClassName(LECTURE_CLASSNAME));
     for (let lectureNode of lectureNodes) {
         const lectureName = cleanLectureName(lectureNode.textContent ?? "")
-        const lecture = currentCourses.lectures[lectureName]
+        const lecture = currentCourse.lectures[lectureName]
         if (!lecture) {
             console.log(`Lecture "${lectureName}" not found in courses list`);
             continue;
@@ -59,7 +59,7 @@ function updateDOM(page: RefreshType, curState: NonNullable<typeof state>) {
         const badgeContainer = document.createElement("div");
         badgeContainer.classList.add("ac-ext-badge-container");
 
-        for (let sharedWith of lecture.sharedWith) {
+        for (let sharedWith of [...lecture.sharedWith, currentCourse.awsId]) {
             const badge = document.createElement("img");
             badge.classList.add(BADGE_CLASSNAME);
             badge.classList.add(`${BADGE_CLASSNAME}-${sharedWith}`);
