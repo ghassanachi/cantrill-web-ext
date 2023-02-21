@@ -1,7 +1,5 @@
 import browser from 'webextension-polyfill';
-import "./style.css";
-import coursesInfo from '../../../assets/courseInfo.json';
-import addCssStyles from '../addCssStyles.js';
+import { type AwsId, type Course, coursesInfo, fetchCourses, type RefreshType } from '~/fetchCourses.js';
 
 const ENROLLED_REGEX = /^\/courses\/enrolled\/(\d+)/;
 const COURSE_REGEX = /^\/courses\/(\d+)/;
@@ -9,29 +7,10 @@ const EXT_DOM_INIT_ID = "ac-ext-loaded-" + Math.round(Math.random() * 10000000);
 const LECTURE_CLASSNAME = "lecture-name";
 const BADGE_CLASSNAME = "ac-ext-badge";
 
-// Types added here instead of background since import are restricted to contentScripts
-export type Level = "associate" | "professional" | "specialty";
 
-export type Course = {
-    awsId: AwsId,
-    courseId: string,
-    level: Level,
-    badge: string,
-    title: string,
-    lectures: Record<string, Lecture>
-}
-
-export type Lecture = {
-    sharedWith: AwsId[]
-}
-
-export type AwsId = keyof typeof coursesInfo;
-
-export type RefreshType = {
-    courseId: string,
-    page: "enrolled" | "course"
-}
-
+/*******************/
+/*   DOM Handlers  */
+/*******************/
 
 export function getPageType(pathname: string): RefreshType | null {
     if (ENROLLED_REGEX.test(pathname)) {
@@ -60,7 +39,7 @@ const cleanLectureName = (name: string): string => {
 
 }
 
-function updateDOM(page: RefreshType, curState: NonNullable<typeof state> ) {
+function updateDOM(page: RefreshType, curState: NonNullable<typeof state>) {
     const initElement = document.createElement("div");
     initElement.id = EXT_DOM_INIT_ID;
     initElement.style.display = "none";
@@ -86,7 +65,7 @@ function updateDOM(page: RefreshType, curState: NonNullable<typeof state> ) {
             badge.classList.add(`${BADGE_CLASSNAME}-${sharedWith}`);
             badge.style.order = `${curState.sortOrder[sharedWith]}`;
             badge.style.display = "none";
-            badge.src = `chrome-extension://${chrome.runtime.id}/images/${coursesInfo[sharedWith].badge}`
+            badge.src = browser.runtime.getURL(`/images/${coursesInfo[sharedWith].badge}`);
             badge.alt = sharedWith;
             badge.title = sharedWith;
             badgeContainer.appendChild(badge);
@@ -97,6 +76,7 @@ function updateDOM(page: RefreshType, curState: NonNullable<typeof state> ) {
 }
 
 function showHideBadges(toggled: AwsId[], all: AwsId[]) {
+    console.log(`Cantrill Ext | Updating badge visibility toggled=${toggled.join(",")}`);
     for (let course of all) {
         if (toggled.includes(course)) {
             for (let node of Array.from(document.getElementsByClassName(`${BADGE_CLASSNAME}-${course}`)) as HTMLImageElement[]) {
@@ -113,10 +93,14 @@ function showHideBadges(toggled: AwsId[], all: AwsId[]) {
 async function tryUpdateDOM(force = false) {
     const page = getPageType(location.pathname);
     if (page === null) return;
+    console.log(`Cantrill Ext | Try updating DOM for course "${page.courseId}" on page "${page.page}"`);
+
 
     if (state === null) {
-        const courses: Record<string, Course> = (await browser.storage.local.get("courses")).courses.data;
-        const toggled: AwsId[] = (await browser.storage.sync.get("toggled")).toggled ?? [];
+        console.log(`Cantrill Ext | Loading initial state`);
+        const courses: Record<string, Course> = (await browser.storage.local.get("courses"))?.courses?.data ?? null;
+        const toggled: AwsId[] = (await browser.storage.sync.get("toggled"))?.toggled ?? [];
+        if (courses === null) { return };
         const sortOrder = Object.keys(courses).map((courseId) => ({ awsId: courses[courseId].awsId, level: courses[courseId].level })).sort((a, b) => {
             if (a.level > b.level) { return 1 }
             if (a.level < b.level) { return -1 }
@@ -138,36 +122,60 @@ async function tryUpdateDOM(force = false) {
     }
 
     if (force || !isInit) {
+        console.log(`Cantrill Ext | Updating DOM`);
         updateDOM(page, state as any);
     }
     showHideBadges(state.toggled, Object.keys(state.sortOrder) as AwsId[]);
 
 }
 
+function addCssStyles(
+    cssPaths: string[],
+) {
+    cssPaths.forEach((cssPath: string) => {
+        const styleEl = document.createElement("link");
+        styleEl.setAttribute("rel", "stylesheet");
+        styleEl.setAttribute("href", browser.runtime.getURL(cssPath));
+        document.head.appendChild(styleEl);
+    });
+}
+
 
 
 
 /*******************/
-/*    Listeners    */
+/*    Entry Point  */
 /*******************/
+function main() {
+    addCssStyles(["/css/content.css"]);
 
-addCssStyles(import.meta.PLUGIN_WEB_EXT_CHUNK_CSS_PATHS)
+    // Listen for DOM changes and then check if you should make changes
+    new MutationObserver(() => { 
+        console.log("Cantrill Ext | DOM Updated checking if re-render necessary");
+        tryUpdateDOM()
+    }).observe(document.body, { childList: true })
 
-// Listen for DOM changes and then check if you should make changes
-new MutationObserver(() => tryUpdateDOM()).observe(document.body, { childList: true })
+    browser.storage.onChanged.addListener((changes) => {
+        console.log("Cantrill Ext | State change received")
+        if (state == null) return;
+        if (changes.toggled?.newValue) {
+            state.toggled = changes.toggled.newValue;
+        }
+        if (changes.courses?.newValue) {
+            state.courses = changes.toggled.newValue;
+        }
+        tryUpdateDOM(!!changes.courses?.newValue);
+    });
 
-browser.storage.onChanged.addListener((changes) => {
-    if (state == null) return; 
-    if (changes.toggled?.newValue) {
-        state.toggled = changes.toggled.newValue;
-    }
-    if (changes.courses?.newValue) {
-        state.courses = changes.toggled.newValue;
-    }
-    console.log(state.toggled);
-    tryUpdateDOM(!!changes.courses?.newValue);
-});
+    fetchCourses().then(() => {
+        console.log("Cantrill Ext | Fetching courses")
+        tryUpdateDOM();
+    }).catch(() => console.error(`Cantrill Ext |Failed to retrieve course info`))
 
+    console.log("Cantrill Ext | Extension Initialized");
+}
 
+// Call entry point
+main()
 
 

@@ -1,9 +1,10 @@
-import pkg from "../package.json";
+const pkg = require("./package.json");
 
-const manifest: Partial<chrome.runtime.ManifestV3> = {
+/** @satisfies {import("chome").runtime.ManifestV3} */
+const sharedManifest = {
     content_scripts: [
         {
-            js: ["src/entries/contentScript/primary/main.ts"],
+            js: ["content_script.js"],
             matches: ["*://learn.cantrill.io/*"],
             run_at: "document_end",
         },
@@ -20,12 +21,8 @@ const manifest: Partial<chrome.runtime.ManifestV3> = {
         256: "icons/256.png",
         512: "icons/512.png",
     },
-    options_ui: {
-        page: "src/entries/options/index.html",
-        open_in_tab: true,
-    },
     permissions: [
-        "alarms", "storage"
+        "storage"
     ],
     action: {
         default_icon: {
@@ -34,26 +31,42 @@ const manifest: Partial<chrome.runtime.ManifestV3> = {
             32: "icons/32.png",
             38: "icons/38.png",
         },
-        default_popup: "src/entries/popup/index.html",
+        default_popup: "popup.html",
         default_title: "Manage Cantrill Courses",
     },
     web_accessible_resources: [{
-        resources: ["images/*", "assets/*"],
+        resources: ["images/*", "css/*"],
         matches: ["*://learn.cantrill.io/*"],
     }],
-    background: {
-        service_worker: "src/entries/background/serviceWorker.ts",
-    },
-    host_permissions: ["*://*/*"],
+    host_permissions: [
+        "https://cantrill-json.ghassanachi.com/courses.json"
+    ],
 };
 
-export function getManifest(): chrome.runtime.ManifestV3 {
-    return {
+/**
+* @param {("chrome" | "firefox" | "safari")} browser 
+* @return import("chrome").runtime.ManifestV3
+*/
+function getManifest(browser) {
+    const manifest = {
         manifest_version: 3,
         author: pkg.author,
         description: pkg.description,
         name: pkg.displayName ?? pkg.name,
         version: pkg.version,
-        ...manifest,
+        ...sharedManifest,
     };
+    if (browser === "firefox") {
+        return {
+            ...manifest,
+            browser_specific_settings: {
+                gecko: {
+                    id: "{943a4777-3bc6-4c05-8030-d686a4f063b3}",
+                }
+            }
+        }
+    }
+    return manifest
 }
+
+module.exports = getManifest;
